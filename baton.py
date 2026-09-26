@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Claude Code Stop hook: nudge toward a handoff (save state, start a fresh
+baton: a Claude Code Stop hook that nudges toward a handoff (save state, start a fresh
 session) at a good breakpoint, instead of letting context grow past a
 working budget.
 
 Inspired by github.com/kunchenguid/compact-adviser, which uses TypeSafe's Jev
 to time `/compact`. This version times a handoff instead: durable state in a
 file plus a fresh session, not an in-context summary. Two stages:
-  1. Local gates (free): opt-in check, token floor, cooldown.
+  1. Local gates (free): enabled check, token floor, cooldown.
   2. Jev scoring (one Noul call): is this a natural checkpoint?
 
 Privacy: only *derived, structured* signals are sent to Jev -- token counts,
@@ -15,17 +15,17 @@ tool-call tallies, elapsed time, and boolean flags computed *locally* from the
 last assistant message. Raw message text, code, and file content never leave
 the machine.
 
-Opt in with `CC_HANDOFF_NUDGE=1` in ~/.claude/settings.json env.
-Opt a project out with its `.claude/settings.json`:
-    { "env": { "CC_HANDOFF_NUDGE": "0" } }
+On once the hook is installed. Turn it off for a project in its
+`.claude/settings.json`:
+    { "env": { "BATON": "0" } }
 
 Optional env:
-  CC_CTX_BUDGET            working budget in tokens (default 200000)
-  CC_HANDOFF_NUDGE_MIN     don't even evaluate below this many tokens (default 150000)
-  CC_HANDOFF_NUDGE_COOLDOWN  seconds between nudges in one session (default 900)
-  CC_HANDOFF_NUDGE_COMMAND your handoff command, e.g. "/handoff" (default: none,
+  BATON_BUDGET             working budget in tokens (default 200000)
+  BATON_MIN_TOKENS         don't even evaluate below this many tokens (default 150000)
+  BATON_COOLDOWN           seconds between nudges in one session (default 900)
+  BATON_COMMAND            your handoff command, e.g. "/handoff" (default: none,
                            the nudge just says to save progress and start fresh)
-  CC_HANDOFF_NUDGE_DEBUG   "1" prints reasoning to stderr
+  BATON_DEBUG              "1" prints reasoning to stderr
 
 TYPESAFE_API_KEY, or a `TYPESAFE_API_KEY=...` line in ~/.claude/typesafe.env
 (a file outside any git repo -- never put this key in a project's
@@ -59,8 +59,8 @@ COMPLETION_RE = re.compile(
 
 
 def debug(msg):
-    if os.environ.get("CC_HANDOFF_NUDGE_DEBUG") == "1":
-        print(f"[handoff-nudge] {msg}", file=sys.stderr)
+    if os.environ.get("BATON_DEBUG") == "1":
+        print(f"[baton] {msg}", file=sys.stderr)
 
 
 def load_api_key():
@@ -195,8 +195,8 @@ def call_jev(api_key, state):
 
 
 def main():
-    if os.environ.get("CC_HANDOFF_NUDGE") != "1":
-        return  # on globally; a project can set CC_HANDOFF_NUDGE=0 to opt out
+    if os.environ.get("BATON", "1") == "0":
+        return  # on by default; a project can set BATON=0 to opt out
 
     raw = sys.stdin.read()
     hook_in = json.loads(raw)
@@ -219,16 +219,16 @@ def main():
         debug("no usage data yet")
         return
 
-    budget = int(os.environ.get("CC_CTX_BUDGET", "200000"))
-    min_tokens = int(os.environ.get("CC_HANDOFF_NUDGE_MIN", "150000"))
+    budget = int(os.environ.get("BATON_BUDGET", "200000"))
+    min_tokens = int(os.environ.get("BATON_MIN_TOKENS", "150000"))
     if tokens < min_tokens:
         return
     pct = tokens / budget * 100
 
-    state_dir = Path.home() / ".claude" / "state" / "handoff-nudge"
+    state_dir = Path.home() / ".claude" / "state" / "baton"
     state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / f"{session_id}.json"
-    cooldown = int(os.environ.get("CC_HANDOFF_NUDGE_COOLDOWN", "900"))
+    cooldown = int(os.environ.get("BATON_COOLDOWN", "900"))
     now = time.time()
     if state_file.exists():
         try:
@@ -274,7 +274,7 @@ def main():
         return
 
     state_file.write_text(json.dumps({"last_nudge_ts": now}))
-    command = os.environ.get("CC_HANDOFF_NUDGE_COMMAND", "").strip()
+    command = os.environ.get("BATON_COMMAND", "").strip()
     action = f"run {command}" if command else "save your progress and start a fresh session"
     msg = (
         f"Context nudge: {tokens // 1000}k/{budget // 1000}k ({pct:.0f}%). "
