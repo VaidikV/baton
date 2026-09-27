@@ -8,9 +8,12 @@ Inspired by github.com/kunchenguid/compact-adviser, which uses TypeSafe's Jev
 to time `/compact`. This version times a handoff instead: durable state in a
 file plus a fresh session, not an in-context summary. Two stages:
   1. Local gates (free): enabled check, token floor, cooldown.
-  2. Jev scoring (one Noul call): is this a natural checkpoint?
+  2. Decision-model scoring (one Noul call): is this a natural checkpoint?
 
-Privacy: only *derived, structured* signals are sent to Jev -- token counts,
+The backend is pluggable: TypeSafe's Jev by default, or any Jev-compatible
+open-weights server (Laya, Kev, Von, Rizzo Flow, ...) via BATON_ENDPOINT.
+
+Privacy: only *derived, structured* signals are sent to the backend -- token counts,
 tool-call tallies, elapsed time, and boolean flags computed *locally* from the
 last assistant message. Raw message text, code, and file content never leave
 the machine.
@@ -25,13 +28,19 @@ Optional env:
   BATON_COOLDOWN           seconds between nudges in one session (default 900)
   BATON_COMMAND            your handoff command, e.g. "/handoff" (default: none,
                            the nudge just says to save progress and start fresh)
+  BATON_ENDPOINT           decision-model endpoint (default TypeSafe Jev;
+                           point at a local Jev-compatible server such as
+                           laya-serve to use an open-weights backend)
+  BATON_MODEL              model name sent to the endpoint (default "jev-latest")
   BATON_DEBUG              "1" prints reasoning to stderr
 
 TYPESAFE_API_KEY, or a `TYPESAFE_API_KEY=...` line in ~/.claude/typesafe.env
 (a file outside any git repo -- never put this key in a project's
-.claude/settings.json, which can end up in a company-shared repo). Without a
-key, falls back to a flat "over budget" heuristic instead of Jev-scored
-breakpoint timing.
+.claude/settings.json, which can end up in a company-shared repo). The key is
+only needed for TypeSafe's hosted Jev. Local backends (Laya, Kev, Von, ...)
+need no key: just set BATON_ENDPOINT to the server's URL. Without a reachable
+backend, baton falls back to a flat "over budget" heuristic instead of
+model-scored breakpoint timing.
 
 Fails open: any error here exits 0 silently. A nudge tool must never break
 the session it's trying to protect.
@@ -145,10 +154,10 @@ def threshold_for_pct(pct):
     return 0.85 - (pct - 75) / 25 * 0.35
 
 
-def call_jev(api_key, state):
+def call_backend(endpoint, model, api_key, state):
     body = {
         "state": state,
-        "model": "jev-latest",
+        "model": model,
         "questions": {
             "good_breakpoint": {
                 "type": "noul",
@@ -173,6 +182,9 @@ def call_jev(api_key, state):
             }
         },
     }
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     try:
         ctx = None
         try:
@@ -181,16 +193,16 @@ def call_jev(api_key, state):
         except ImportError:
             pass
         req = urllib.request.Request(
-            TYPESAFE_ENDPOINT,
+            endpoint,
             data=json.dumps(body).encode("utf-8"),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
             data = json.loads(resp.read())
         return data.get("answers", {}).get("good_breakpoint", {}).get("noul")
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as e:
-        debug(f"Jev call failed: {e}")
+        debug(f"backend call failed: {e}")
         return None
 
 
@@ -242,33 +254,34 @@ def main():
     mentions_next_step = bool(NEXT_STEP_RE.search(last_message))
     mentions_completion = bool(COMPLETION_RE.search(last_message))
 
-    api_key = load_api_key()
+    endpoint = os.environ.get("BATON_ENDPOINT", TYPESAFE_ENDPOINT).rstrip("/")
+    model = os.environ.get("BATON_MODEL", "jev-latest")
+    api_key = load_api_key()  # optional; local backends don't need one
+    backend_label = "Jev" if endpoint == TYPESAFE_ENDPOINT else "model"
+
     nudge = False
     detail = ""
-    if api_key:
-        state = {
-            "context_pct_of_budget": round(pct, 1),
-            "tokens_used": tokens,
-            "budget": budget,
-            "assistant_turns_this_session": scan["assistant_turns"],
-            "minutes_elapsed_this_session": scan["minutes_elapsed"],
-            "recent_tool_call_counts": scan["tool_tally"],
-            "last_message_mentions_next_step_language": mentions_next_step,
-            "last_message_mentions_completion_language": mentions_completion,
-            "last_message_length_chars": len(last_message),
-        }
-        noul = call_jev(api_key, state)
-        if noul is not None:
-            thresh = threshold_for_pct(pct)
-            nudge = noul >= thresh
-            detail = f"Jev p={noul:.2f} (need {thresh:.2f})"
-            debug(f"pct={pct:.0f} state={state} -> {detail} -> nudge={nudge}")
-        else:
-            api_key = None  # fall through to heuristic below
-
-    if not api_key:
+    state = {
+        "context_pct_of_budget": round(pct, 1),
+        "tokens_used": tokens,
+        "budget": budget,
+        "assistant_turns_this_session": scan["assistant_turns"],
+        "minutes_elapsed_this_session": scan["minutes_elapsed"],
+        "recent_tool_call_counts": scan["tool_tally"],
+        "last_message_mentions_next_step_language": mentions_next_step,
+        "last_message_mentions_completion_language": mentions_completion,
+        "last_message_length_chars": len(last_message),
+    }
+    noul = call_backend(endpoint, model, api_key, state)
+    if noul is not None:
+        thresh = threshold_for_pct(pct)
+        nudge = noul >= thresh
+        detail = f"{backend_label} p={noul:.2f} (need {thresh:.2f})"
+        debug(f"pct={pct:.0f} state={state} -> {detail} -> nudge={nudge}")
+    else:
         nudge = pct >= 100
-        detail = "heuristic only -- set TYPESAFE_API_KEY for Jev-scored timing"
+        detail = ("heuristic only -- set TYPESAFE_API_KEY for Jev, or run a "
+                  "local backend (e.g. laya-serve) and set BATON_ENDPOINT")
 
     if not nudge:
         return
