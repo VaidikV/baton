@@ -37,7 +37,7 @@ Optional env:
   BATON_MIN_TOKENS         don't even evaluate below this many tokens (default 150000)
   BATON_COOLDOWN           seconds between nudges in one session (default 900)
   BATON_COMMAND            your handoff command, e.g. "/handoff" (default: none,
-                           the nudge just says to save progress and start fresh)
+                           the nudge says to ask Claude for a handoff note, then /clear)
   BATON_ENDPOINT           decision-model endpoint (default TypeSafe Jev;
                            point at a local Jev-compatible server to use an
                            open-weights backend)
@@ -791,7 +791,9 @@ def main():
         return
 
     command = os.environ.get("BATON_COMMAND", "").strip()
-    action = f"run {command}" if command else "save your progress and start a fresh session"
+    # Without a custom command, spell out a handoff anyone can do with built-ins.
+    action = (f"run {command}" if command
+              else "hand off. Ask Claude to write a handoff note, then /clear")
     size = f"{tokens // 1000}k/{budget // 1000}k ({pct:.0f}%)"
     # Claude Code renders this as one dim line, so the action leads and an emoji
     # gives it the only color available.

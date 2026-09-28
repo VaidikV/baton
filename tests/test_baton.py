@@ -119,8 +119,10 @@ class BatonTest(unittest.TestCase):
         self.home = Path(self.tmp.name)
         self.env = mock.patch.dict(os.environ, {"HOME": str(self.home)}, clear=False)
         self.env.start()
-        for k in ("TYPESAFE_API_KEY", "BATON_ENDPOINT", "BATON", "BATON_DEBUG"):
-            os.environ.pop(k, None)
+        # A developer's own baton config (settings env) must not leak into the tests.
+        for k in list(os.environ):
+            if k.startswith(("BATON", "TYPESAFE_")) or k == "CMUX_SURFACE_ID":
+                os.environ.pop(k)
         self.backend = None
 
     def tearDown(self):
@@ -188,6 +190,13 @@ class BatonTest(unittest.TestCase):
         args = run.call_args[0][0]
         self.assertEqual(args[:2], ["osascript", "-e"])
         self.assertIn("Good point to run /handoff", args[2])
+
+    def test_default_message_explains_a_builtin_handoff(self):
+        self.use_backend(answers(0.9, 0.9))
+        msg = self.run_hook(self.write_transcript(transcript()))
+        self.assertTrue(msg.startswith("\U0001F3C1 baton: good point to hand off. "
+                                       "Ask Claude to write a handoff note, then /clear. "
+                                       "Context 260k/200k"))
 
     def test_malformed_answer_falls_back_to_heuristic(self):
         bad = answers(0.9, 0.9)
