@@ -16,7 +16,8 @@ Long Claude Code sessions get expensive, because everything in context is re-rea
 baton watches your session. Once it gets big, it asks a decision model whether this looks like a natural stopping point, and nudges you when it does. The backend is your choice: [Jev](https://typesafe.ai) from TypeSafe (hosted) by default, or a self-hosted open-weights alternative like [Laya](https://github.com/NandhaKishorM/laya), Kev, or Von via any Jev-compatible server.
 
 ```
-Context nudge: 260k/200k (130%). Jev p=0.81 (need 0.45). This looks like a good point to save your progress and start a fresh session before starting anything new.
+Context nudge: 260k/200k (130%). Jev p=0.81 (need 0.45).
+Good point to save your progress and start a fresh session.
 ```
 
 <p align="center"><img src="diagram.png" alt="How baton decides when to nudge" width="560"></p>
