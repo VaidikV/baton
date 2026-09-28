@@ -248,6 +248,26 @@ class BatonTest(unittest.TestCase):
         features, _, _ = baton.scan_transcript(self.write_transcript(entries))
         self.assertEqual(features["todos"], {"pending": 1, "in_progress": 1, "completed": 1})
 
+    def test_ssl_falls_back_to_system_bundle_without_certifi(self):
+        bundle = self.home / "ca.pem"
+        bundle.write_text("")
+        empty = mock.Mock(cafile=None, capath=None)
+        with mock.patch.dict(sys.modules, {"certifi": None}), \
+                mock.patch.object(baton.ssl, "get_default_verify_paths", return_value=empty), \
+                mock.patch.object(baton.ssl, "create_default_context") as make, \
+                mock.patch.object(baton, "SYSTEM_CA_BUNDLES", ("/nonexistent.pem", str(bundle))):
+            ctx, source = baton.ssl_context()
+            make.assert_called_once_with(cafile=str(bundle))
+            self.assertEqual(source, str(bundle))
+            with mock.patch.object(baton, "SYSTEM_CA_BUNDLES", ()):
+                self.assertEqual(baton.ssl_context(), (None, None))
+
+    def test_ssl_keeps_python_default_when_it_has_certs(self):
+        good = mock.Mock(cafile=str(self.home), capath=None)  # any existing path
+        with mock.patch.dict(sys.modules, {"certifi": None}), \
+                mock.patch.object(baton.ssl, "get_default_verify_paths", return_value=good):
+            self.assertEqual(baton.ssl_context(), (None, "python default"))
+
     def test_threshold_slides(self):
         self.assertEqual(baton.threshold_for_pct(50), 0.85)
         self.assertAlmostEqual(baton.threshold_for_pct(87.5), 0.675)

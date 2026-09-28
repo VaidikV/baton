@@ -125,7 +125,7 @@ baton decides *when*. What you do next is up to you. A good handoff writes the c
 
 ## Troubleshooting
 
-- **Nudges say "heuristic, backend unavailable" with a key set.** Python may be missing SSL certificates. Run `pip3 install certifi`, and use `BATON_DEBUG=1` to confirm. After a failure baton backs off (up to 5 minutes) before asking again.
+- **Nudges say "heuristic, backend unavailable" with a key set.** Check the key, then run `baton.py --check`: it probes the backend and shows which TLS certificates are in use. baton uses `certifi` if installed, then Python's own certificates, then the OS bundle (such as macOS's `/etc/ssl/cert.pem`, which covers python.org builds that were never given certificates). If none is found, run `pip3 install certifi`. `BATON_DEBUG=1` shows the exact error. After a failure baton backs off (up to 5 minutes) before asking again.
 - **Nudges say "heuristic, backend unavailable" with a local backend.** The server isn't reachable at `BATON_ENDPOINT`, or doesn't answer `choice` questions. Check it's running, the URL ends at the `/v1/systemone` route, and `baton.py --check` passes.
 - **No nudge ever shows up.** The session may still be under `BATON_MIN_TOKENS`. Without a reachable backend, baton only warns once you're over budget.
 - baton fails quietly by design. Any error exits without output, so it never breaks your session.

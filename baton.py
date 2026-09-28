@@ -70,6 +70,11 @@ TIMEOUT_S = 3
 MAX_RESPONSE_BYTES = 32768
 TAIL_BYTES = 256 * 1024
 STATE_TTL_S = 7 * 86400
+SYSTEM_CA_BUNDLES = (
+    "/etc/ssl/cert.pem",                    # macOS, Alpine, BSDs
+    "/etc/ssl/certs/ca-certificates.crt",   # Debian, Ubuntu
+    "/etc/pki/tls/certs/ca-bundle.crt",     # Fedora, RHEL
+)
 
 # compact-adviser's two atomic questions (packages/claude-mod/lib/judge.ts),
 # with one added sentence telling the judge the state is derived, not text.
@@ -474,18 +479,31 @@ def parse_choice(value, options):
     return probs
 
 
+def ssl_context():
+    """(context, source). python.org builds on macOS ship no CA certificates until
+    "Install Certificates.command" is run, so fall back to the OS bundle rather
+    than fail every HTTPS call with CERTIFICATE_VERIFY_FAILED."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where()), "certifi"
+    except ImportError:
+        pass
+    paths = ssl.get_default_verify_paths()
+    if (paths.cafile and os.path.exists(paths.cafile)) or (paths.capath and os.path.isdir(paths.capath)):
+        return None, "python default"
+    for bundle in SYSTEM_CA_BUNDLES:
+        if os.path.exists(bundle):
+            return ssl.create_default_context(cafile=bundle), bundle
+    return None, None
+
+
 def call_backend(endpoint, model, api_key, state):
     """Score in [0, 1], or None on any failure (network, HTTP, malformed reply)."""
     body = {"model": model, "state": state, "questions": QUESTIONS}
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    ctx = None
-    try:
-        import certifi
-        ctx = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        pass
+    ctx = ssl_context()[0] if endpoint.startswith("https:") else None
     try:
         req = urllib.request.Request(
             endpoint, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST",
@@ -594,6 +612,14 @@ def cmd_check():
                          "(nudges from 100% of budget)")
     else:
         lines.append(f"OK   backend: {endpoint} (model={model})")
+
+    if endpoint.startswith("https:"):
+        _, source = ssl_context()
+        if source:
+            lines.append(f"OK   TLS certificates: {source}")
+        else:
+            lines.append("WARN no CA certificates found; run `pip3 install certifi` "
+                         "(or macOS: Install Certificates.command)")
 
     if usable:
         features = {"tokens": 260000, "user_prompts": 12, "assistant_messages": 80,
