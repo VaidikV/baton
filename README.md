@@ -1,6 +1,6 @@
 <div align="center">
 
-# baton
+# 🏁 baton
 
 **Know when to pass a Claude Code session to a fresh one, before context gets expensive.**
 
