@@ -24,21 +24,20 @@ Good point to save your progress and start a fresh session.
 
 ## Quick start
 
-You need Python 3.8+ and a decision backend. No other dependencies. Use TypeSafe's hosted Jev (needs an API key) or a self-hosted open-weights model (no key, see below).
+You need Python 3.8+. No other dependencies.
+
+### Try it in 2 minutes (no signup)
 
 ```sh
 # 1. Install the hook
 mkdir -p ~/.claude/hooks
 curl -fsSL https://raw.githubusercontent.com/VaidikV/baton/main/baton.py -o ~/.claude/hooks/baton.py
 chmod +x ~/.claude/hooks/baton.py
-
-# 2. Save your key outside any repo
-echo 'TYPESAFE_API_KEY=your-key-here' > ~/.claude/typesafe.env
-chmod 600 ~/.claude/typesafe.env
 ```
 
 ```jsonc
-// 3. Register it in ~/.claude/settings.json
+// 2. Register it in ~/.claude/settings.json
+// (merge into your existing "hooks" section, don't overwrite the file)
 {
   "hooks": {
     "Stop": [
@@ -48,11 +47,25 @@ chmod 600 ~/.claude/typesafe.env
 }
 ```
 
-That's it. Once a session is big and at a good breakpoint, you'll see a nudge after the reply.
+```sh
+# 3. Verify it
+~/.claude/hooks/baton.py --check
+```
 
-### Use an open-weights backend instead
+That's it. Out of the box baton runs in heuristic mode: it nudges once a session passes your budget. Enough to feel what it does.
 
-No API key needed. Start any Jev-compatible server (for example Laya's `laya-serve`), then point baton at it:
+### Add smart timing
+
+Heuristic mode only knows "over budget." For breakpoint-aware nudges, give it a backend.
+
+**Option A: TypeSafe Jev (hosted).** Get a key at [typesafe.ai](https://typesafe.ai), then save it outside any repo:
+
+```sh
+echo 'TYPESAFE_API_KEY=your-key-here' > ~/.claude/typesafe.env
+chmod 600 ~/.claude/typesafe.env
+```
+
+**Option B: Open weights (self-hosted, no key).** Start any Jev-compatible server (for example Laya's `laya-serve`), then point baton at it:
 
 ```jsonc
 // ~/.claude/settings.json
@@ -70,6 +83,8 @@ No API key needed. Start any Jev-compatible server (for example Laya's `laya-ser
 ```
 
 Any server speaking the `POST /v1/systemone` shape works: Laya (`laya-serve`), Kev, Von, Rizzo Flow, and others. The `laya-typed-decisions` checkpoint is the best pick for this kind of judgment call; the base Laya checkpoints score near chance on typed decisions.
+
+Run `baton.py --check` again after either option to confirm the backend answers.
 
 ## How it works
 

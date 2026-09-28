@@ -13,6 +13,9 @@ file plus a fresh session, not an in-context summary. Two stages:
 The backend is pluggable: TypeSafe's Jev by default, or any Jev-compatible
 open-weights server (Laya, Kev, Von, Rizzo Flow, ...) via BATON_ENDPOINT.
 
+Run `baton.py --check` to verify the install: python version, hook
+registration in ~/.claude/settings.json, and backend reachability.
+
 Privacy: only *derived, structured* signals are sent to the backend -- token counts,
 tool-call tallies, elapsed time, and boolean flags computed *locally* from the
 last assistant message. Raw message text, code, and file content never leave
@@ -206,7 +209,92 @@ def call_backend(endpoint, model, api_key, state):
         return None
 
 
+def probe_backend(endpoint, model, api_key):
+    """One tiny synthetic query to verify the backend answers."""
+    state = {
+        "context_pct_of_budget": 130.0,
+        "tokens_used": 260000,
+        "budget": 200000,
+        "assistant_turns_this_session": 12,
+        "minutes_elapsed_this_session": 45.0,
+        "recent_tool_call_counts": {"Read": 20, "Edit": 8},
+        "last_message_mentions_next_step_language": False,
+        "last_message_mentions_completion_language": True,
+        "last_message_length_chars": 120,
+    }
+    return call_backend(endpoint, model, api_key, state)
+
+
+def cmd_check():
+    """Verify the install: python version, hook registration, backend reachability."""
+    lines = []
+    ok = True
+
+    ver = sys.version.split()[0]
+    if sys.version_info >= (3, 8):
+        lines.append(f"OK   Python {ver}")
+    else:
+        lines.append(f"FAIL Python {ver} (need 3.8+)")
+        ok = False
+
+    if os.environ.get("BATON") == "0":
+        lines.append("WARN BATON=0 is set: baton is disabled")
+
+    settings_path = os.path.expanduser("~/.claude/settings.json")
+    try:
+        with open(settings_path) as f:
+            cfg = json.load(f)
+        registered = any(
+            "baton" in h.get("command", "")
+            for group in cfg.get("hooks", {}).get("Stop", [])
+            for h in group.get("hooks", [])
+        )
+        if registered:
+            lines.append("OK   registered as a Stop hook in ~/.claude/settings.json")
+        else:
+            lines.append("WARN baton not found under hooks.Stop in ~/.claude/settings.json")
+    except FileNotFoundError:
+        lines.append("WARN ~/.claude/settings.json not found")
+    except (json.JSONDecodeError, OSError) as e:
+        lines.append(f"FAIL ~/.claude/settings.json unreadable: {e}")
+        ok = False
+
+    endpoint = os.environ.get("BATON_ENDPOINT", TYPESAFE_ENDPOINT).rstrip("/")
+    model = os.environ.get("BATON_MODEL", "jev-latest")
+    api_key = load_api_key()
+    if endpoint == TYPESAFE_ENDPOINT:
+        if api_key:
+            lines.append("OK   backend: TypeSafe Jev (key found)")
+        else:
+            lines.append("WARN no TYPESAFE_API_KEY: heuristic mode (nudges only past 100% of budget)")
+    else:
+        lines.append(f"OK   backend: {endpoint} (model={model}, no key needed)")
+
+    if endpoint != TYPESAFE_ENDPOINT or api_key:
+        p = probe_backend(endpoint, model, api_key)
+        if p is not None:
+            lines.append(f"OK   backend answered test query (p={p:.2f})")
+        else:
+            lines.append("FAIL backend did not answer; check the URL/key (BATON_DEBUG=1 for detail)")
+            ok = False
+
+    budget = int(os.environ.get("BATON_BUDGET", "200000"))
+    floor = int(os.environ.get("BATON_MIN_TOKENS", "150000"))
+    cooldown = int(os.environ.get("BATON_COOLDOWN", "900"))
+    lines.append(f"INFO config: budget={budget} min_tokens={floor} cooldown={cooldown}s")
+
+    print("\n".join(lines))
+    return 0 if ok else 1
+
+
 def main():
+    if "--check" in sys.argv[1:]:
+        sys.exit(cmd_check())
+    if "--help" in sys.argv[1:]:
+        print("usage: baton.py [--check]\n"
+              "  no args : run as a Claude Code Stop hook (reads JSON from stdin)\n"
+              "  --check : verify installation and backend reachability")
+        return
     if os.environ.get("BATON", "1") == "0":
         return  # on by default; a project can set BATON=0 to opt out
 
