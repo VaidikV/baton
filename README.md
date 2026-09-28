@@ -16,8 +16,8 @@ Long Claude Code sessions get expensive, because everything in context is re-rea
 baton watches your session. Once it gets big, it asks a decision model whether this looks like a natural stopping point, and nudges you when it does. The backend is your choice: [Jev](https://typesafe.ai) from TypeSafe (hosted) by default, or a self-hosted open-weights alternative like [Laya](https://github.com/NandhaKishorM/laya), Kev, or Von via any Jev-compatible server.
 
 ```
-Context nudge: 260k/200k (130%). Jev score 0.81 (need 0.45).
-Good point to save your progress and start a fresh session.
+🏁 baton: good point to save your progress and start a fresh session.
+Context 260k/200k (130%), Jev score 0.81 (need 0.45).
 ```
 
 <p align="center"><img src="diagram.png" alt="How baton decides when to nudge: local checks, two questions to Jev or your own model, a sliding score bar, and a local fallback rule" width="560"></p>
@@ -117,6 +117,7 @@ Set any of these in the `env` block of your settings file:
 | `BATON_COMMAND` | none | Your handoff command (for example `/handoff`), named in the nudge |
 | `BATON_ENDPOINT` | TypeSafe Jev | Decision-model endpoint. Point at a local Jev-compatible server (e.g. `laya-serve`) to use an open-weights backend instead |
 | `BATON_MODEL` | `jev-latest` | Model name sent to the endpoint (e.g. `laya-typed-decisions`) |
+| `BATON_NOTIFY` | `0` | Set to `1` to also get a desktop notification with a sound (macOS, or Linux with `notify-send`). The in-chat nudge is a single dim line that's easy to miss |
 | `BATON_DEBUG` | `0` | Set to `1` to print the reasoning to stderr |
 
 ## What's a handoff?

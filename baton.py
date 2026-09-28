@@ -42,6 +42,8 @@ Optional env:
                            point at a local Jev-compatible server to use an
                            open-weights backend)
   BATON_MODEL              model name sent to the endpoint (default "jev-latest")
+  BATON_NOTIFY             "1" also shows a desktop notification with a sound
+                           (macOS, or Linux with notify-send)
   BATON_DEBUG              "1" prints reasoning to stderr
 
 TYPESAFE_API_KEY, or a `TYPESAFE_API_KEY=...` line in ~/.claude/typesafe.env
@@ -57,7 +59,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import ssl
+import subprocess
 import sys
 import time
 import urllib.error
@@ -541,6 +545,20 @@ def heuristic_nudge(pct, state):
     return not busy
 
 
+def notify(text):
+    """Best-effort desktop notification with sound (BATON_NOTIFY=1). Output is
+    captured so nothing but the systemMessage JSON reaches stdout."""
+    try:
+        if sys.platform == "darwin":
+            script = (f"display notification {json.dumps(text, ensure_ascii=False)} "
+                      'with title "baton" sound name "Glass"')
+            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=3)
+        elif shutil.which("notify-send"):
+            subprocess.run(["notify-send", "baton", text], capture_output=True, timeout=3)
+    except Exception as e:  # a missed notification must never cost the nudge
+        debug(f"notify failed: {e!r}")
+
+
 def state_dir():
     return Path.home() / ".claude" / "state" / "baton"
 
@@ -771,8 +789,12 @@ def main():
 
     command = os.environ.get("BATON_COMMAND", "").strip()
     action = f"run {command}" if command else "save your progress and start a fresh session"
-    msg = (f"Context nudge: {tokens // 1000}k/{budget // 1000}k ({pct:.0f}%). "
-           f"{detail}. Good point to {action}.")
+    size = f"{tokens // 1000}k/{budget // 1000}k ({pct:.0f}%)"
+    # Claude Code renders this as one dim line, so the action leads and an emoji
+    # gives it the only color available.
+    msg = f"\U0001F3C1 baton: good point to {action}. Context {size}, {detail}."
+    if os.environ.get("BATON_NOTIFY") == "1":
+        notify(f"Good point to {action}. Context {size}.")
     # systemMessage must be top-level to reach the user; a systemMessage nested
     # in hookSpecificOutput is ignored.
     print(json.dumps({"systemMessage": msg}))

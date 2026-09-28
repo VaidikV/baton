@@ -172,6 +172,22 @@ class BatonTest(unittest.TestCase):
         self.assertIsNone(self.run_hook(self.write_transcript(transcript()), session="s2",
                                         last_message="different"))
 
+    def test_message_leads_with_action_and_notify_is_opt_in(self):
+        self.use_backend(answers(0.9, 0.9))
+        os.environ["BATON_COMMAND"] = "/handoff"
+        self.addCleanup(os.environ.pop, "BATON_COMMAND", None)
+        with mock.patch.object(baton.subprocess, "run") as run:
+            msg = self.run_hook(self.write_transcript(transcript()))
+            run.assert_not_called()
+            os.environ["BATON_NOTIFY"] = "1"
+            self.addCleanup(os.environ.pop, "BATON_NOTIFY", None)
+            with mock.patch.object(baton.sys, "platform", "darwin"):
+                self.run_hook(self.write_transcript(transcript()), session="s2")
+        self.assertTrue(msg.startswith("\U0001F3C1 baton: good point to run /handoff. Context 260k/200k"))
+        args = run.call_args[0][0]
+        self.assertEqual(args[:2], ["osascript", "-e"])
+        self.assertIn("Good point to run /handoff", args[2])
+
     def test_malformed_answer_falls_back_to_heuristic(self):
         bad = answers(0.9, 0.9)
         bad["answers"]["done"]["probabilities"]["finished"] = 0.5  # no longer sums to 1
