@@ -181,6 +181,7 @@ class BatonTest(unittest.TestCase):
             run.assert_not_called()
             os.environ["BATON_NOTIFY"] = "1"
             self.addCleanup(os.environ.pop, "BATON_NOTIFY", None)
+            os.environ.pop("CMUX_SURFACE_ID", None)
             with mock.patch.object(baton.sys, "platform", "darwin"):
                 self.run_hook(self.write_transcript(transcript()), session="s2")
         self.assertTrue(msg.startswith("\U0001F3C1 baton: good point to run /handoff. Context 260k/200k"))

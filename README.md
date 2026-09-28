@@ -117,8 +117,18 @@ Set any of these in the `env` block of your settings file:
 | `BATON_COMMAND` | none | Your handoff command (for example `/handoff`), named in the nudge |
 | `BATON_ENDPOINT` | TypeSafe Jev | Decision-model endpoint. Point at a local Jev-compatible server (e.g. `laya-serve`) to use an open-weights backend instead |
 | `BATON_MODEL` | `jev-latest` | Model name sent to the endpoint (e.g. `laya-typed-decisions`) |
-| `BATON_NOTIFY` | `0` | Set to `1` to also get a desktop notification with a sound (macOS, or Linux with `notify-send`). The in-chat nudge is a single dim line that's easy to miss |
+| `BATON_NOTIFY` | `0` | Set to `1` to also get a desktop notification with a sound (macOS, Linux with `notify-send`, or `cmux notify` inside cmux). The in-chat nudge is a single dim line that's easy to miss |
 | `BATON_DEBUG` | `0` | Set to `1` to print the reasoning to stderr |
+
+### Show it in your status line
+
+The in-chat nudge scrolls away. To keep it on screen, have your [status line](https://code.claude.com/docs/en/statusline) script check baton's per-session state file, which records `last_nudge_ts` once baton has nudged:
+
+```sh
+# inside a statusline script; $IN holds the JSON Claude Code sends on stdin
+SID=$(printf '%s' "$IN" | jq -r '.session_id')
+jq -e '.last_nudge_ts' "$HOME/.claude/state/baton/$SID.json" >/dev/null 2>&1 && printf ' 🏁 handoff'
+```
 
 ## What's a handoff?
 

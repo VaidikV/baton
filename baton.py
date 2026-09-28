@@ -549,7 +549,10 @@ def notify(text):
     """Best-effort desktop notification with sound (BATON_NOTIFY=1). Output is
     captured so nothing but the systemMessage JSON reaches stdout."""
     try:
-        if sys.platform == "darwin":
+        if os.environ.get("CMUX_SURFACE_ID") and shutil.which("cmux"):
+            subprocess.run(["cmux", "notify", "--title", "baton", "--body", text],
+                           capture_output=True, timeout=3)
+        elif sys.platform == "darwin":
             script = (f"display notification {json.dumps(text, ensure_ascii=False)} "
                       'with title "baton" sound name "Glass"')
             subprocess.run(["osascript", "-e", script], capture_output=True, timeout=3)
