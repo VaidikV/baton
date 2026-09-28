@@ -16,7 +16,7 @@ Long Claude Code sessions get expensive, because everything in context is re-rea
 baton watches your session. Once it gets big, it asks a decision model whether this looks like a natural stopping point, and nudges you when it does. The backend is your choice: [Jev](https://typesafe.ai) from TypeSafe (hosted) by default, or a self-hosted open-weights alternative like [Laya](https://github.com/NandhaKishorM/laya), Kev, or Von via any Jev-compatible server.
 
 ```
-Context nudge: 260k/200k (130%). Jev p=0.81 (need 0.45).
+Context nudge: 260k/200k (130%). Jev score 0.81 (need 0.45).
 Good point to save your progress and start a fresh session.
 ```
 
@@ -52,7 +52,7 @@ chmod +x ~/.claude/hooks/baton.py
 ~/.claude/hooks/baton.py --check
 ```
 
-That's it. Out of the box baton runs in heuristic mode: it nudges once a session passes your budget. Enough to feel what it does.
+That's it. Out of the box baton runs in heuristic mode with no network calls: once a session passes your budget, it nudges unless local signals say work is mid-flight (a task in progress, a failing test, background jobs). Past 125% it nudges regardless.
 
 ### Add smart timing
 
@@ -82,19 +82,27 @@ chmod 600 ~/.claude/typesafe.env
 }
 ```
 
-Any server speaking the `POST /v1/systemone` shape works: Laya (`laya-serve`), Kev, Von, Rizzo Flow, and others. The `laya-typed-decisions` checkpoint is the best pick for this kind of judgment call; the base Laya checkpoints score near chance on typed decisions.
+Any server speaking the `POST /v1/systemone` shape and answering `choice` questions works: Laya (`laya-serve`), Kev, Von, Rizzo Flow, and others. The `laya-typed-decisions` checkpoint is the best pick for this kind of judgment call; the base Laya checkpoints score near chance on typed decisions.
 
-Run `baton.py --check` again after either option to confirm the backend answers.
+Run `baton.py --check` again after either option to confirm the backend gives a valid answer.
 
 ## How it works
 
-1. **Free local checks.** Is the session past 150K tokens, and has it been 15 minutes since the last nudge? If not, baton exits.
-2. **One question to the backend.** Is this a natural checkpoint, or is work still in progress?
-3. **A sliding bar.** At 150K, the model must be 85% sure. At 200K and beyond, 45% is enough. The fuller the context, the easier it is to nudge.
+1. **Free local checks.** Is the session past 150K tokens, has it been 15 minutes since the last nudge, and is this a reply baton hasn't judged yet? If not, baton exits. Below the floor it reads only the end of the transcript.
+2. **One request, two questions.** Is the latest unit of work *finished* (waiting on you counts), and was it *hands-on* work or coordination? The score is `P(finished) × (0.5 + 0.5 × P(hands_on))`. This question design comes from compact-adviser, which measured it against what users actually asked next. compact-adviser feeds it conversation text; baton feeds it derived signals only, and that combination hasn't been measured yet.
+3. **A sliding bar.** At 150K the score must reach 0.85. At 200K and beyond, 0.45 is enough. The fuller the context, the easier it is to nudge.
 
 ### Privacy
 
-Only numbers and yes/no flags are sent: context size, turn count, elapsed time, recent tool-call counts, and whether the last reply sounds finished. **No message text, code, or file content leaves your machine.** Self-host the backend (e.g. Laya) and nothing leaves the machine at all.
+compact-adviser sends redacted conversation text to Jev. baton doesn't. It reads the whole transcript locally and sends only what it derives:
+
+- **Context:** size against budget, compactions so far, turn count, elapsed time.
+- **Latest turn:** tool calls by kind (read, edit, shell, delegate, web, MCP), files edited (a count), calls since the last edit, tool errors, and whether tests ran and failed, a commit or push happened, or a PR was opened.
+- **Todos:** pending, in-progress, and completed counts.
+- **Last reply and prompt:** length, and yes/no flags for completion or next-step language, a stated blocker, and whether the reply ends with a question, offers options, or hands work back to you.
+- **Background tasks** still running.
+
+**No message text, code, commands, tool output, file paths, or MCP tool names leave your machine.** To see exactly what would be sent for any session, run `baton.py --show path/to/transcript.jsonl`. Self-host the backend (e.g. Laya) and nothing leaves the machine at all.
 
 ## Configuration
 
@@ -117,14 +125,20 @@ baton decides *when*. What you do next is up to you. A good handoff writes the c
 
 ## Troubleshooting
 
-- **Nudges say "heuristic only" even with a key set.** Python may be missing SSL certificates. Run `pip3 install certifi`, and use `BATON_DEBUG=1` to confirm.
-- **Nudges say "heuristic only" with a local backend.** The server isn't reachable at `BATON_ENDPOINT`. Check it's running and the URL ends at the `/v1/systemone` route.
+- **Nudges say "heuristic, backend unavailable" with a key set.** Python may be missing SSL certificates. Run `pip3 install certifi`, and use `BATON_DEBUG=1` to confirm. After a failure baton backs off (up to 5 minutes) before asking again.
+- **Nudges say "heuristic, backend unavailable" with a local backend.** The server isn't reachable at `BATON_ENDPOINT`, or doesn't answer `choice` questions. Check it's running, the URL ends at the `/v1/systemone` route, and `baton.py --check` passes.
 - **No nudge ever shows up.** The session may still be under `BATON_MIN_TOKENS`. Without a reachable backend, baton only warns once you're over budget.
 - baton fails quietly by design. Any error exits without output, so it never breaks your session.
 
+## Development
+
+```sh
+python3 -m unittest discover -s tests   # stdlib only; uses a local mock backend
+```
+
 ## Credits
 
-Inspired by [compact-adviser](https://github.com/kunchenguid/compact-adviser) by kunchenguid, which uses Jev to time `/compact`.
+Inspired by [compact-adviser](https://github.com/kunchenguid/compact-adviser) by kunchenguid, which uses Jev to time `/compact`. baton's two-question design and score composition are adapted from it.
 
 ## License
 
