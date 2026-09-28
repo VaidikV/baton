@@ -20,7 +20,7 @@ Context nudge: 260k/200k (130%). Jev score 0.81 (need 0.45).
 Good point to save your progress and start a fresh session.
 ```
 
-<p align="center"><img src="diagram.png" alt="How baton decides when to nudge" width="560"></p>
+<p align="center"><img src="diagram.png" alt="How baton decides when to nudge: local checks, two questions to Jev or your own model, a sliding score bar, and a local fallback rule" width="560"></p>
 
 ## Quick start
 
